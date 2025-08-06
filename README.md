@@ -8,3 +8,7 @@ You also need config.json with:
   "clientId": "BOT_ID",
   "guildId": "SERVER_ID"
 }
+
+run in cmd:
+winget install yt-dlp
+winget install ffmpeg
