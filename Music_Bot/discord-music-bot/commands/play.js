@@ -1,99 +1,69 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('play')
-        .setDescription('Pune muzică de pe YouTube într-un voice channel')
-        .addStringOption(option =>
-            option.setName('query')
-                .setDescription('Link YouTube sau nume melodie')
-                .setRequired(true)
-        ),
+  data: new SlashCommandBuilder()
+    .setName('play')
+    .setDescription('Redă o melodie din YouTube, Spotify, SoundCloud etc.')
+    .addStringOption(option =>
+      option
+        .setName('query') // ← numele opțiunii trebuie să corespundă cu ce primești în loguri
+        .setDescription('Numele melodiei sau link-ul')
+        .setRequired(true)
+    ),
 
-    async execute(interaction) {
-        const query = interaction.options.getString('query');
-        
-        // Verifică dacă utilizatorul este într-un voice channel
-        if (!interaction.member.voice.channel) {
-            return interaction.reply({ 
-                embeds: [{
-                    color: 0xff0000,
-                    title: '❌ Eroare',
-                    description: 'Trebuie să fii într-un voice channel!'
-                }], 
-                flags: 64 // ephemeral flag
-            });
-        }
+  async execute(interaction) {
+    const query = interaction.options.getString('query');
 
-        // Verifică dacă botul are permisiunile necesare
-        const permissions = interaction.member.voice.channel.permissionsFor(interaction.client.user);
-        if (!permissions.has('Connect') || !permissions.has('Speak')) {
-            return interaction.reply({ 
-                embeds: [{
-                    color: 0xff0000,
-                    title: '❌ Eroare',
-                    description: 'Nu am permisiunile necesare pentru a mă conecta la voice channel!'
-                }], 
-                flags: 64 // ephemeral flag
-            });
-        }
+    // Log pentru debugging
+    console.log('=== DEBUG PLAY COMMAND ===');
+    console.log('User:', interaction.user.username);
+    console.log('Guild:', interaction.guild.name);
+    console.log('Channel:', interaction.channel.name);
+    console.log('Query parameter:', `"${query}"`);
+    console.log('Query type:', typeof query);
 
-        // Reply imediat cu loading message
-        await interaction.reply({
-            embeds: [{
-                color: 0xffff00,
-                title: '🔄 Se încarcă...',
-                description: `Caut: **${query}**`
-            }]
-        });
-
-        try {
-            // Folosește DisTube-ul din client
-            const distube = interaction.client.distube;
-
-            // Redă muzica
-            await distube.play(interaction.member.voice.channel, query, {
-                member: interaction.member,
-                textChannel: interaction.channel
-            });
-
-            // Șterge mesajul de loading după 2 secunde
-            setTimeout(async () => {
-                try {
-                    await interaction.deleteReply();
-                } catch (error) {
-                    // Ignore error if message was already deleted
-                }
-            }, 2000);
-
-        } catch (error) {
-            console.error('Play command error:', error);
-            
-            let errorMessage = 'A apărut o eroare necunoscută!';
-            
-            if (error.message.includes('FFMPEG_NOT_INSTALLED')) {
-                errorMessage = '❌ **FFmpeg nu este instalat!**\n\nInstalează FFmpeg:\n• Windows: `winget install ffmpeg`\n• Apoi restartează PowerShell';
-            } else if (error.message.includes('No result found')) {
-                errorMessage = 'Nu am găsit niciun rezultat pentru această căutare!';
-            } else if (error.message.includes('Age restricted')) {
-                errorMessage = 'Videoclipul are restricție de vârstă!';
-            } else if (error.message.includes('Private video')) {
-                errorMessage = 'Videoclipul este privat!';
-            } else if (error.message.includes('Video unavailable')) {
-                errorMessage = 'Videoclipul nu este disponibil!';
-            }
-
-            try {
-                await interaction.editReply({
-                    embeds: [{
-                        color: 0xff0000,
-                        title: '❌ Eroare',
-                        description: errorMessage
-                    }]
-                });
-            } catch (editError) {
-                console.error('Nu am putut edita reply-ul:', editError);
-            }
-        }
+    if (!query || query.trim() === '') {
+      await interaction.reply({
+        content: '❌ Parametrul pentru melodie este lipsă sau gol.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
     }
+
+    const voiceChannel = interaction.member.voice.channel;
+    if (!voiceChannel) {
+      await interaction.reply({
+        content: '❌ Trebuie să fii într-un canal de voce pentru a reda muzică!',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    try {
+      await interaction.client.distube.play(voiceChannel, query, {
+        textChannel: interaction.channel,
+        member: interaction.member,
+      });
+
+      await interaction.reply({
+        content: `🎵 Caut melodia: \`${query}\``,
+        ephemeral: false,
+      });
+    } catch (error) {
+      console.error('Eroare la redare:', error);
+
+      let errMsg = '❌ A apărut o eroare la redare.';
+      if (
+        typeof error.message === 'string' &&
+        (error.message.includes('fragment') || error.message.includes('403') || error.message.includes('Forbidden'))
+      ) {
+        errMsg = '❌ Link invalid sau restricționat. Încearcă altul.';
+      }
+
+      await interaction.reply({
+        content: errMsg,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  },
 };
