@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { DisTube } = require('distube');
 const { YouTubePlugin } = require('@distube/youtube');
+const { YtDlpPlugin } = require('@distube/yt-dlp');
 const { SoundCloudPlugin } = require('@distube/soundcloud');
 const { SpotifyPlugin } = require('@distube/spotify');
 const fs = require('fs');
@@ -18,15 +19,45 @@ const client = new Client({
 
 client.commands = new Collection();
 
+// Citim și parsăm fișierul cookies-youtube-com.txt (format Netscape)
+let youtubeCookies = [];
+const cookiesPath = path.join(__dirname, 'cookies-youtube-com.txt');
+
+if (fs.existsSync(cookiesPath)) {
+    try {
+        const fileContent = fs.readFileSync(cookiesPath, 'utf8');
+        youtubeCookies = fileContent.split('\n')
+            .filter(line => !line.startsWith('#') && line.trim() !== '')
+            .map(line => {
+                const parts = line.split('\t');
+                return {
+                    domain: parts[0] || '',
+                    path: parts[2] || '/',
+                    secure: parts[3] === 'TRUE',
+                    expirationDate: parseInt(parts[4]) || 0,
+                    name: parts[5] || '',
+                    value: parts[6] ? parts[6].trim() : ''
+                };
+            })
+            .filter(cookie => cookie.name !== '' && cookie.value !== '');
+        
+        console.log(`✅ Am încărcat ${youtubeCookies.length} cookie-uri YouTube pentru ocolirea blocajului!`);
+    } catch (e) {
+        console.error('Eroare la citirea cookie-urilor:', e);
+    }
+}
+
 // Configurație DisTube minimă
 client.distube = new DisTube(client, {
+    nsfw: true,
     plugins: [
-        new YouTubePlugin(),
+        new YtDlpPlugin({ update: true }),
         new SoundCloudPlugin(),
         new SpotifyPlugin()
     ]
 });
 
+// Stergem eventul custom play-dl care dadea erori
 // Event listeners pentru DisTube - DOAR UNA SINGURĂ DATĂ
 client.distube
     .on('playSong', (queue, song) => {
@@ -126,14 +157,20 @@ client.distube
         };
         queue.textChannel.send({ embeds: [embed] });
     })
-    .on('error', (textChannel, error) => {
-        console.error('DisTube Error:', error);
+    .on('error', (e, queue, song) => {
+        // În versiunile noi de DisTube (v5), parametrii s-au schimbat în (error, queue, song)
+        const error = e instanceof Error ? e : queue; 
+        const textChannel = queue?.textChannel || e; 
+
+        console.error('DisTube Error:', error ? error.message : 'Unknown Error');
         
-        let errorMessage = 'A apărut o eroare necunoscută!';
+        if (!error || !error.message) return;
+
+        let errorMessage = 'A apărut o eroare necunoscută: ' + error.message;
         let errorTitle = '❌ Eroare DisTube';
         
         // Identifică tipul de eroare și oferă soluții specifice
-        if (error.message.includes('fragment') || error.message.includes('403') || error.message.includes('Forbidden')) {
+        if (error.message.includes('fragment') || error.message.includes('403') || error.message.includes('Forbidden') || error.message.includes('Sign in')) {
             console.log('Fragment/403 error detected, continuing...');
             return;
         } else if (error.errorCode === 'NOT_SUPPORTED_URL') {

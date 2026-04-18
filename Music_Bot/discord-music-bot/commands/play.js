@@ -40,14 +40,15 @@ module.exports = {
     }
 
     try {
+      await interaction.deferReply();
+      
       await interaction.client.distube.play(voiceChannel, query, {
         textChannel: interaction.channel,
         member: interaction.member,
       });
 
-      await interaction.reply({
+      await interaction.editReply({
         content: `🎵 Caut melodia: \`${query}\``,
-        ephemeral: false,
       });
     } catch (error) {
       console.error('Eroare la redare:', error);
@@ -60,9 +61,8 @@ module.exports = {
         errMsg = '❌ Link invalid sau restricționat. Încearcă altul.';
       }
 
-      await interaction.reply({
+      await interaction.editReply({
         content: errMsg,
-        flags: MessageFlags.Ephemeral,
       });
     }
   },
