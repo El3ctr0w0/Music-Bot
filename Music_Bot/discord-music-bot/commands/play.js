@@ -9,10 +9,25 @@ module.exports = {
         .setName('query') // ← numele opțiunii trebuie să corespundă cu ce primești în loguri
         .setDescription('Numele melodiei sau link-ul')
         .setRequired(true)
+    )
+    .addBooleanOption(option =>
+      option
+        .setName('autoplay')
+        .setDescription('Dacă bot-ul să continue să pună melodii similare după ce se termină actuala.')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
+    // Răspundem la Discord imediat ca să nu primim Timeout (10062 Unknown Interaction)
+    try {
+      await interaction.deferReply();
+    } catch (e) {
+      console.error('Nu am putut deferRăspunde', e);
+      return; // Oprim comanda dacă a expirat deja conexiunea
+    }
+
     const query = interaction.options.getString('query');
+    const autoplay = interaction.options.getBoolean('autoplay');
 
     // Log pentru debugging
     console.log('=== DEBUG PLAY COMMAND ===');
@@ -23,32 +38,51 @@ module.exports = {
     console.log('Query type:', typeof query);
 
     if (!query || query.trim() === '') {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Parametrul pentru melodie este lipsă sau gol.',
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     const voiceChannel = interaction.member.voice.channel;
     if (!voiceChannel) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Trebuie să fii într-un canal de voce pentru a reda muzică!',
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     try {
-      await interaction.deferReply();
-      
-      await interaction.client.distube.play(voiceChannel, query, {
+      let finalQuery = query;
+      // Convertim o simplă căutare în URL cu yt-search pt că am scos YouTubePlugin din Distube. 
+      if (!query.startsWith('http')) {
+        const ytSearch = require('yt-search');
+        const searchResult = await ytSearch(query);
+        if (searchResult && searchResult.videos.length > 0) {
+          finalQuery = searchResult.videos[0].url;
+        }
+      }
+
+      await interaction.client.distube.play(voiceChannel, finalQuery, {
         textChannel: interaction.channel,
         member: interaction.member,
       });
 
+      let replyContent = `🎵 Caut melodia: \`${query}\``;
+
+      // Setăm autoplay dacă a fost specificat în comandă
+      if (autoplay !== null) {
+        const queue = interaction.client.distube.getQueue(interaction.guild);
+        if (queue) {
+          if (queue.autoplay !== autoplay) {
+            queue.toggleAutoplay();
+          }
+          replyContent += `\n🔄 Autoplay a fost setat pe: **${autoplay ? 'Da' : 'Nu'}**!`;
+        }
+      }
+
       await interaction.editReply({
-        content: `🎵 Caut melodia: \`${query}\``,
+        content: replyContent,
       });
     } catch (error) {
       console.error('Eroare la redare:', error);

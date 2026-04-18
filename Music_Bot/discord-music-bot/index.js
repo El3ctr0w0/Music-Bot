@@ -1,12 +1,18 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const ffmpegPath = require('ffmpeg-static');
+
+// Definim variabilele de sistem PENTRU ffmpeg ÎNAINTE de a încărca modulele de Discord
+process.env.PATH += path.delimiter + path.dirname(ffmpegPath);
+process.env.FFMPEG_PATH = ffmpegPath;
+
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { DisTube } = require('distube');
 const { YouTubePlugin } = require('@distube/youtube');
-const { YtDlpPlugin } = require('@distube/yt-dlp');
+const { YtDlpPlugin, json: ytDlpJson } = require('@distube/yt-dlp');
 const { SoundCloudPlugin } = require('@distube/soundcloud');
 const { SpotifyPlugin } = require('@distube/spotify');
-const fs = require('fs');
-const path = require('path');
 
 const client = new Client({
     intents: [
@@ -47,18 +53,29 @@ if (fs.existsSync(cookiesPath)) {
     }
 }
 
+// ----------------------------------------------------
+// Setăm corect plugin-urile pentru DisTube.
+// YouTubePlugin folosește `cookies` pentru a trece de blocaje,
+// iar YtDlpPlugin servește ca un fallback stabil pentru YouTube sau alte site-uri.
+// YouTubePlugin a fost SCHIMBAT pe YtDlpPlugin pentru a evita FFMPEG crash (3436169992 - 403 Forbidden)!
+// Întrucât yt-dlp folosește un nod sigur.
+const distubePlugins = [
+    new YtDlpPlugin({ update: false }),
+    new SoundCloudPlugin(),
+    new SpotifyPlugin()
+];
+// ----------------------------------------------------
+
 // Configurație DisTube minimă
 client.distube = new DisTube(client, {
     nsfw: true,
-    plugins: [
-        new YtDlpPlugin({ update: true }),
-        new SoundCloudPlugin(),
-        new SpotifyPlugin()
-    ]
+    ffmpeg: {
+        path: ffmpegPath // Calea explicită e obligatorie!
+    },
+    plugins: distubePlugins
 });
 
-// Stergem eventul custom play-dl care dadea erori
-// Event listeners pentru DisTube - DOAR UNA SINGURĂ DATĂ
+// Event listeners pentru DisTube
 client.distube
     .on('playSong', (queue, song) => {
         const embed = {
@@ -158,11 +175,11 @@ client.distube
         queue.textChannel.send({ embeds: [embed] });
     })
     .on('error', (e, queue, song) => {
-        // În versiunile noi de DisTube (v5), parametrii s-au schimbat în (error, queue, song)
         const error = e instanceof Error ? e : queue; 
         const textChannel = queue?.textChannel || e; 
 
-        console.error('DisTube Error:', error ? error.message : 'Unknown Error');
+        console.error('DisTube Error FULL:', error);
+        console.error('DisTube Error Message:', error ? error.message : 'Unknown Error');
         
         if (!error || !error.message) return;
 
@@ -179,9 +196,12 @@ client.distube
         } else if (error.message.includes('not valid JSON') || error.message.includes('ERROR:')) {
             errorMessage = '❌ **Eroare de procesare!**\n\n**Soluții:**\n• Încearcă din nou\n• Sau încearcă un alt video/link';
             errorTitle = '🔧 Problemă de procesare';
-        } else if (error.message.includes('FFMPEG_NOT_INSTALLED') || error.message.includes('ffmpeg')) {
+        } else if (error.message.includes('FFMPEG_NOT_INSTALLED')) {
             errorMessage = '❌ **FFmpeg nu este instalat!**\n\n**Soluție:**\n• Windows: `winget install ffmpeg`\n• Apoi restartează aplicația';
             errorTitle = '🛠️ FFmpeg lipsește';
+        } else if (error.message.includes('ffmpeg exited with code 1') || error.message.includes('ffmpeg')) {
+             errorMessage = '❌ **Eroare la redarea audio (FFmpeg a picat)!**\n\nDetaliu eroare: `' + error.message + '`\n**Soluții posibile:**\n• Melodia este restricționată sau necesită un cookie mai proaspăt.\n• Șterge și pune din nou cookie-urile YouTube.';
+             errorTitle = '⚠️ Eroare redare / FFmpeg Crash';
         } else if (error.message.includes('No result found') || error.message.includes('not found')) {
             errorMessage = '❌ **Nu am găsit rezultate!**\n\nÎncearcă:\n• Un link YouTube direct\n• Un nume de melodie mai specific';
             errorTitle = '🔍 Fără rezultate';
