@@ -12,3 +12,6 @@ You also need config.json with:
 run in cmd:
 winget install yt-dlp
 winget install ffmpeg
+
+
+Now you can use export cookies extension to simply get the cookies from youtube and put it in the discord-music-bot folder named cookies-youtube-com.txt
